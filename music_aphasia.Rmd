@@ -1,0 +1,372 @@
+---
+title: "Music Interventiosn for aphasia"
+output: github_document
+date: "06/12/2020"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo=TRUE)
+knitr::opts_chunk$set(dpi=900)
+knitr::opts_chunk$set(dev='svg')
+
+library(webshot)
+library(metafor)
+library(tidyverse)
+library(rmarkdown)
+library(magrittr)
+library(grid)
+library(gt)
+library(forestplot)
+library(glue)
+library(Gmisc)
+library(Matrix)
+
+```
+
+
+## Open Data
+>Click any of the following links to view the documents
+
+
+
+| Stage  |      File     |  
+|:----------:|:-------------:|
+| Protocol            | [PROSPERO](https://www.crd.york.ac.uk/prospero/display_record.php?RecordID=184029)|
+| Search strategy     | [Ovid](https://github.com/ponceoscarj/Cholesteatoma/blob/main/2%20Search%20Strategy/ovid.csv) and [Scopus](https://github.com/ponceoscarj/Cholesteatoma/blob/main/2%20Search%20Strategy/scopus.csv) | 
+| Abstract screening  | [Total Articles = 1024](https://github.com/ponceoscarj/Cholesteatoma/blob/main/3%20Articles%20for%20Abstract%20Screening/AbstractScreening_TotalStudies.txt), [Excluded Articles = 780](https://github.com/ponceoscarj/Cholesteatoma/blob/main/3%20Articles%20for%20Abstract%20Screening/AbstractScreening_ExcludedStudies.txt), **`Included Articles = 247`&#8595;**   |
+| Full-text screening |  [Total Articles = 247](https://github.com/ponceoscarj/Cholesteatoma/blob/main/4%20Articles%20for%20Full%20Text%20Screening/FulltextScreening_TotalStudies.txt), [Excluded Articles = 230](https://github.com/ponceoscarj/Cholesteatoma/blob/main/4%20Articles%20for%20Full%20Text%20Screening/FulltextScreening_ExcludedStudies.txt), **`Included Articles = 17`&#8595;**   |
+| Data Extraction    | [Total Articles = 17](https://github.com/ponceoscarj/Cholesteatoma/blob/main/5%20Included%20Articles%20for%20Data%20Extraction/IncludedStudies_SRMA.txt) |
+| Raw Outcome data    | [Available as `.CSV`](https://github.com/ponceoscarj/Cholesteatoma/blob/main/6%20Extracted%20Data/outcomes.csv)|
+| Analysis codes      |    [Script as `R Markdown`](https://github.com/ponceoscarj/Cholesteatoma/blob/main/Cholesteatoma.Rmd)|
+
+
+```{r cleaning, echo=FALSE, message=FALSE, warning=FALSE}
+music <- read.csv("6 Extracted Data/outcomes.csv")
+
+music$study <- gsub(",", " et al.,", music$study)
+music$comparison <- gsub("vs", "vs.", music$comparison)
+
+names(music)[2] <- "author"
+names(music)[33] <- "mean_post1"
+names(music)[34] <- "sd_post1"
+names(music)[40] <- "mean_post2"
+names(music)[41] <- "sd_post2"
+
+```
+
+
+
+
+```{r functions_md, echo=FALSE, message=FALSE, warning=FALSE}
+md <- function(database){
+  
+  db <- database
+  db <- escalc(measure="SMD", 
+               m1i=mean_post1, m2i = mean_post2, 
+               sd1i  = sd_post1, sd2i = sd_post2, 
+               n1i = n1, n2i= n2, data=database)
+  db$vi <- ifelse(is.na(db$vi), 
+               ((db$mdul_post-db$mdll_post)/((2*abs(qt(0.05/2, db$total-1)))^2)), db$vi)
+  db <- db[order(db$yi),]
+  db <- summary(db)
+  
+  db$md <- paste(formatC(db$yi, format='f', digits =2)," ",
+                 "(",formatC(db$ci.lb, format='f', digits =2),
+                 ",",formatC(db$ci.ub, format='f', digits=2),")") 
+  db$postmean1 <- paste(formatC(db$mean_post1, format='f', digits=1),'(', formatC(db$sd_post1, format='f', digits=1),')')
+  db$postmean2 <- paste(formatC(db$mean_post2, format='f', digits=1),'(', formatC(db$sd_post2, format='f', digits=1),')')
+  
+  ma <- rma(yi, vi, measure='SMD', data=db, method='REML')
+  
+  db$w <- paste(formatC(weights(ma), format='f', digits = 1),'%')
+  db$weights <- weights(ma)
+  
+  list(pre = db, ma = ma)
+}
+
+
+table_md <- function(analysis, nstudies, int, comp, outcome, col, arms,
+                     follow=FALSE){
+   ifelse(nstudies>1,
+        (b <- cbind( 
+          c("Author", analysis$pre$author, 
+            paste("Overall Standardized Mean Difference for", analysis$ma$k, "studies","\n", 
+                  "(Tau^2 = ", (formatC(analysis$ma$tau2, digits=2, format="f")), ", df = ", 
+                  (analysis$ma$k - analysis$ma$p),
+                  ", p ", (ifelse(analysis$ma$QEp < 0.001, 
+                                  paste("< 0.001"),
+                                  paste("= ", formatC(analysis$ma$QEp, digits=3, format="f")))),
+                  "; ", "I^2", " = ", (formatC(analysis$ma$I2, digits=1, format="f")), "%)")),
+        c(paste(arms), analysis$pre$comparison, NA),
+        c(paste(int), analysis$pre$n1, sum(analysis$pre$n1)),
+        c(paste(outcome, '\n', col), analysis$pre$postmean1, NA),
+        c(paste(comp), analysis$pre$n2,sum(analysis$pre$n2)),
+        c(paste(outcome, '\n', col), analysis$pre$postmean2, NA),
+        c(paste0("Standardized Mean","\n","Difference (95% CI)"),
+          analysis$pre$md, 
+          paste(formatC(analysis$ma$b, format='f', digits =2), 
+                  " (",formatC(analysis$ma$ci.lb, format='f', digits=2),
+                  ",", formatC(analysis$ma$ci.ub, format='f', digits=2), ")")),
+        c("Weight (%)", analysis$pre$w, "100 %"))),
+        (b <- cbind( 
+        c("Author", analysis$pre$author),
+        c(paste(int), analysis$pre$n1),
+        c(paste(outcome,'\n', col), analysis$pre$postmean1),
+        c(paste(comp), analysis$pre$n2),
+        c(paste(outcome, '\n',col), analysis$pre$postmean2),
+        c(paste0("Standardized Mean","\n","Difference (95% CI)"), analysis$pre$md))))
+
+  ifelse(follow==TRUE, 
+          b <- cbind(b, c(paste('Follow-up'), analysis$followup, NA)), NA)
+  ifelse(follow==TRUE,
+          b <- b[,c(1:5,ncol(b),ncol(b)-2, ncol(b)-1)], NA)
+  
+  
+  b <- as_tibble(b) 
+  b <- b %>% add_row(.before = 2)
+  b <- b %>% add_row(.before = 2)
+  b <- b %>% add_row(.after = nrow(b))
+  
+  ifelse(nstudies>1, b <- b %>% add_row(.before = nrow(b)-1), NA)
+
+  
+  ifelse(nstudies > 1,
+        (c <- structure(list(
+          mean = c(rep(NA, 3), analysis$pre$yi, NA, analysis$ma$b,NA),
+          lower = c(rep(NA, 3), analysis$pre$ci.lb, NA, analysis$ma$ci.lb, NA),
+          upper = c(rep(NA, 3), analysis$pre$ci.ub, NA, analysis$ma$ci.ub, NA)),
+          .Names = c("mean", "lower", "upper"),
+          row.names = c(NA, -1L*nrow(b)),
+          class = "data.frame")),
+        (c <- structure(list(
+          mean = c(rep(NA, 3), analysis$pre$yi, NA),
+          lower = c(rep(NA, 3), analysis$pre$ci.lb, NA),
+          upper = c(rep(NA, 3), analysis$pre$ci.ub, NA)),
+          .Names = c("mean", "lower", "upper"),
+          row.names = c(NA, -1L*nrow(b)),
+          class = "data.frame")))
+
+  c <- as_tibble(c)
+  
+  list(b = b, c = c)
+} 
+
+
+
+
+plotmd_single_studies <- function(words, numbers,  
+                                  xtick, sizes, bolding, aligning, fpPosition) {
+
+  (forestplot(words,
+             graph.pos = fpPosition,
+             zero = 0,
+             numbers,
+             new_page = TRUE,
+             colgap = unit(5, "mm"),
+             hrzl_lines = list('3' = gpar (lwd=1, columns=c(1:(ncol(words)+1)), col="black")),
+             lineheight=unit(0.7,'cm'),
+             boxsize = sizes,
+             line.margin = 2,
+             is.summary = bolding,
+             align = aligning,
+             ci.vertices = TRUE,
+             txt_gp = fpTxtGp(label =gpar (cex=0.9), 
+                              ticks = gpar(cex = 0.9, fontface="bold"),
+                              summary = gpar(cex = 0.9),
+                              xlab = gpar(cex=0.9)),
+             xticks = xtick,
+             xlog=FALSE,
+             clip = c(0,1),
+             grid = xtick,
+             lwd.xaxis = 1,
+             lwd.ci = 2.2,
+             lwd.zero = 1.5,
+             graphwidth = unit(10,"cm"),
+             col=fpColors(box="black",line="grey", zero = 'dodgerblue4', axes="grey20", summary="black")))
+ 
+}
+
+
+```
+
+
+> **Show supplementary figures used to generate Figure 7**
+
+
+## Suplementary Figures 
+<ul>
+<li><details><summary><b>Supplementary Figure 1</b> - Difference in speech after Music Therapy versus Non-Music Therapy </summary>
+
+```{r speech, fig.height = 4, fig.width = 16, echo=FALSE, message=FALSE, warning=FALSE}
+speech <- subset(music, outcome=='Speech improvement')
+
+speech1 <- subset(speech, sensitivity1==1)
+
+speech1_md <- md(speech1)
+tspeech1 <- table_md(analysis = speech1_md, nstudies = 5, 
+                     int = "Arm 1 (n)", 
+                     comp = "Arm 2 (n)",
+                     arms = "Comparison",
+                     outcome = "Speech", 
+                     col = "Mean (SD)",
+                     follow = FALSE)
+
+plot <- plotmd_single_studies(words = tspeech1$b,
+                      numbers = tspeech1$c,
+                      fpPosition = ncol(tspeech1$b)-1,
+                      xtick = c(-2,-1,0,1,2), 
+                      sizes = c(rep(NA,3), 0.011*(speech1_md$pre$weights+50), NA, 1,NA),
+                      bolding = c(T, rep(F, 10), T, F),
+                      aligning = c('l','l', rep('c', 4), 'l', 'l'))
+```
+
+</details></li>
+
+<li><details><summary><b>Supplementary Figure 1</b> - Difference in comprehension after Music Therapy versus Non-Music Therapy </summary>
+
+```{r comprehension, fig.height = 4, fig.width = 17, echo=FALSE, message=FALSE, warning=FALSE}
+comprehension <- subset(music, outcome=='Comprehension')
+
+comp1 <- subset(comprehension, sensitivity1==1)
+
+comp1_md <- md(comp1)
+tcomp1 <- table_md(analysis = comp1_md, nstudies = 5, 
+                     int = "Arm 1 (n)", 
+                     comp = "Arm 2 (n)",
+                     arms = "Comparison",
+                     outcome = "Comprehension", 
+                     col = "Mean (SD)",
+                     follow = FALSE)
+
+plot <- plotmd_single_studies(words = tcomp1$b,
+                      numbers = tcomp1$c,
+                      fpPosition = ncol(tcomp1$b)-1,
+                      xtick = c(-2,-1,0,1,2), 
+                      sizes = 
+                        c(rep(NA,3), 0.011*(comp1_md$pre$weights+50), NA, 1,NA),
+                      bolding = c(T, rep(F, 8), T, F),
+                      aligning = c('l','l', rep('c', 4), 'l', 'l'))
+```
+
+</details></li>
+
+
+<li><details><summary><b>Supplementary Figure </b> - Difference in Mood after Music Therapy versus Non-Music Therapy </summary>
+
+```{r mood, fig.height = 3, fig.width = 16, echo=FALSE, message=FALSE, warning=FALSE}
+mood <- subset(music, outcome=='Mood')
+
+mood1 <- subset(mood, sensitivity1==1)
+
+mood1_md <- md(mood1)
+tmood1 <- table_md(analysis = mood1_md, nstudies = 5, 
+                     int = "Arm 1 (n)", 
+                     comp = "Arm 2 (n)",
+                     arms = "Comparison",
+                     outcome = "Mood", 
+                     col = "Mean (SD)",
+                     follow = FALSE)
+
+plot <- plotmd_single_studies(words = tmood1$b,
+                      numbers = tmood1$c,
+                      fpPosition = ncol(tmood1$b)-1,
+                      xtick = c(-2,-1,0,1,2), 
+                      sizes = 
+                        c(rep(NA,3), 0.011*(mood1_md$pre$weights+50), NA, 1,NA),
+                      bolding = c(T, rep(F, 5), T, F),
+                      aligning = c('l','l', rep('c', 4), 'l', 'l'))
+```
+
+</details></li>
+
+
+
+
+
+
+
+</ul>
+
+
+
+
+
+<ul>
+<li><details><summary><b>Supplementary Figure </b> - Difference in speech after Music Therapy versus Non-Music Therapy </summary>
+
+```{r speech_sensitivity, fig.height = 4, fig.width = 16, echo=FALSE, message=FALSE, warning=FALSE}
+speech2 <- subset(speech, sensitivity2==2)
+
+speech2_md <- md(speech2)
+tspeech2 <- table_md(analysis = speech2_md, nstudies = 5, 
+                     int = "Arm 1 (n)", 
+                     comp = "Arm 2 (n)",
+                     arms = "Comparison",
+                     outcome = "Speech", 
+                     col = "Mean (SD)",
+                     follow = FALSE)
+
+plot <- plotmd_single_studies(words = tspeech2$b,
+                      numbers = tspeech2$c,
+                      fpPosition = ncol(tspeech2$b)-1,
+                      xtick = c(-2,-1,0,1,2), 
+                      sizes = c(rep(NA,3), 0.011*(speech2_md$pre$weights+50), NA, 1,NA),
+                      bolding = c(T, rep(F, 10), T, F),
+                      aligning = c('l','l', rep('c', 4), 'l', 'l'))
+```
+</details></li>
+
+<li><details><summary><b>Supplementary Figure </b> - Difference in comprehension after Music Therapy versus Non-Music Therapy </summary>
+
+```{r comprehension_sensitivity, fig.height = 4, fig.width = 17, echo=FALSE, message=FALSE, warning=FALSE}
+comp2 <- subset(comprehension, sensitivity2==2)
+
+comp2_md <- md(comp2)
+tcomp2 <- table_md(analysis = comp2_md, nstudies = 5, 
+                     int = "Arm 1 (n)", 
+                     comp = "Arm 2 (n)",
+                     arms = "Comparison",
+                     outcome = "Comprehension", 
+                     col = "Mean (SD)",
+                     follow = FALSE)
+
+plot <- plotmd_single_studies(words = tcomp2$b,
+                      numbers = tcomp2$c,
+                      fpPosition = ncol(tcomp2$b)-1,
+                      xtick = c(-2,-1,0,1,2), 
+                      sizes = 
+                        c(rep(NA,3), 0.011*(comp2_md$pre$weights+50), NA, 1,NA),
+                      bolding = c(T, rep(F, 8), T, F),
+                      aligning = c('l','l', rep('c', 4), 'l', 'l'))
+```
+
+</details></li>
+
+
+
+<li><details><summary><b>Supplementary Figure </b> - Difference in Mood after Music Therapy versus Non-Music Therapy </summary>
+
+```{r mood_sensitivity, fig.height = 3, fig.width = 16, echo=FALSE, message=FALSE, warning=FALSE}
+
+mood2 <- subset(mood, sensitivity2==2)
+
+mood2_md <- md(mood2)
+tmood2 <- table_md(analysis = mood2_md, nstudies = 5, 
+                     int = "Arm 1 (n)", 
+                     comp = "Arm 2 (n)",
+                     arms = "Comparison",
+                     outcome = "Mood", 
+                     col = "Mean (SD)",
+                     follow = FALSE)
+
+plot <- plotmd_single_studies(words = tmood2$b,
+                      numbers = tmood2$c,
+                      fpPosition = ncol(tmood2$b)-1,
+                      xtick = c(-3, -2,-1,0,1,2,3), 
+                      sizes = 
+                        c(rep(NA,3), 0.011*(mood2_md$pre$weights+50), NA, 1,NA),
+                      bolding = c(T, rep(F, 5), T, F),
+                      aligning = c('l','l', rep('c', 4), 'l', 'l'))
+```
+
+</details></li>
