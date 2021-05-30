@@ -305,13 +305,12 @@ plot <- plotmd_single_studies(words = overall1,
                       lines = 
                         list('3' = gpar (lwd=1, columns=c(1:(ncol(tspeech1$b)+1)), col="black"),
                             '12' = gpar (lwd=1, columns=c(3,5), col="#404040"),
-                              
-                           '15' = gpar (lwd=3, columns=c(1:(ncol(tspeech1$b)+1)), col="grey"),
-                                   '22' = gpar (lwd=1, columns=c(3,5), col="#404040"),
-                                   '25' = gpar (lwd=1, columns=c(1:(ncol(tspeech1$b)+1)), col="grey"),
-                                   '29' = gpar (lwd=1, columns=c(3,5), col="#404040"),
-                                   '32' = gpar (lwd=1, columns=c(1:(ncol(tspeech1$b)+1)), col="grey"),
-                                   '36' = gpar (lwd=1, columns=c(1:(ncol(tspeech1$b)+1)), col="grey")),
+                            '15' = gpar (lwd=1, columns=c(1:(ncol(tspeech1$b)+1)), col="grey"),
+                            '22' = gpar (lwd=1, columns=c(3,5), col="#404040"),
+                            '25' = gpar (lwd=1, columns=c(1:(ncol(tspeech1$b)+1)), col="grey"),
+                            '29' = gpar (lwd=1, columns=c(3,5), col="#404040"),
+                            '32' = gpar (lwd=1, columns=c(1:(ncol(tspeech1$b)+1)), col="grey"),
+                            '36' = gpar (lwd=1, columns=c(1:(ncol(tspeech1$b)+1)), col="grey")),
                       aligning = c('l','l', 'c','l','c','l','r','c' ))
 
 
